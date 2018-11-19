@@ -7,14 +7,14 @@ A PiCamera connected to a Raspberry pi is able to reconize drinks in a bar (beer
 
 The project contains 3 main parts that correspond to the 3 following folders:
 
-## Edge:
+### Edge:
 
 This part implements the Edge computing part that can be deployed on a Raspberry pi 3B using Greengrass Aws.
 
-## Back:
+### Back:
 
 This part implements the Back-end part using AWS IoT Core platform.
 
-## Front:
+### Front:
 
 This part implements the Front-end part of the project. It's shows the numbers of drinks ordered in the bar.
