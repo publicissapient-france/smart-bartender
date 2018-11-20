@@ -1,0 +1,193 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: AWS SAM template for bartender GreenGrass
+Parameters:
+  User:
+    Type: String
+    Default: user1
+Resources:
+  LambdaRuleReadCommand:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: bin/readCommand
+      Timeout: 10
+      Runtime: go1.x
+      CodeUri:
+        Bucket: bucketbartender
+        Key: !Sub ${User}/readCommand.zip
+      Policies:
+      - AWSIoTThingsRegistration
+      - AWSIoTConfigAccess
+      - AWSIoTDataAccess
+      - DynamoDBCrudPolicy:
+          TableName: !Sub ${User}-Command
+      Environment:
+        Variables:
+          TABLE_COMMANDS: !Sub ${User}-Command
+      Events:
+        EventCommandReception:
+          Type: IoTRule
+          Name: IotRuleCommandReception
+          Properties:
+            AwsIotSqlVersion: "2016-03-23"
+            Sql: "SELECT * FROM 'bartender/topic_drunk'"
+  LambdaGetCommands:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: bin/getCommand
+      Timeout: 10
+      Runtime: go1.x
+      CodeUri:
+        Bucket: bucketbartender
+        Key: !Sub ${User}/getCommand.zip
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName: !Sub ${User}-Command
+      Environment:
+        Variables:
+          TABLE_COMMANDS: !Sub ${User}-Command
+      Events:
+        CommandsGet:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Bartender
+            Path: /command
+            Method: GET
+  LambdaGetForChangingBarStatusForServer:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: bin/getToChangeBarStatus
+      Timeout: 10
+      Runtime: go1.x
+      CodeUri:
+        Bucket: bucketbartender
+        Key: !Sub ${User}/getToChangeBarStatus.zip
+      Policies:
+      - AWSIoTThingsRegistration
+      - AWSIoTConfigAccess
+      - AWSIoTDataAccess
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - iot:DescribeEndpoint
+          - iot:SearchIndex
+          Resource:
+          - '*'
+      - AWSIoTDataAccess
+      - DynamoDBCrudPolicy:
+          TableName: !Sub ${User}-Command
+      Environment:
+        Variables:
+          TABLE_COMMANDS: !Sub ${User}-Command
+      Events:
+        CommandsGet:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Bartender
+            Path: /barStatus
+            Method: GET
+  Bartender:
+    Type: AWS::Serverless::Api
+    Properties:
+      EndpointConfiguration: REGIONAL
+      Name: !Sub ${User} - Bartender Api
+      DefinitionBody:
+        swagger: "2.0"
+        info:
+          version: "2017-11-09T13:59:26Z"
+          title: !Sub "${AWS::StackName}-api-test"
+        basePath: !Sub "/test"
+        schemes:
+          - "https"
+        paths:
+          /command:
+            get:
+              summary: Get unattended commands
+              operationId: CommandsGet
+              consumes:
+              - application/json
+              produces:
+              - application/json
+              responses:
+                '200':
+                  description: "200 response"
+                  schema:
+                    $ref: "#/definitions/Command"
+              x-amazon-apigateway-integration:
+                responses:
+                  default:
+                    statusCode: "200"
+                uri:
+                  Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaGetCommands.Arn}/invocations"
+                passthroughBehavior: "when_no_match"
+                httpMethod: "POST"
+                contentHandling: "CONVERT_TO_TEXT"
+                type: "aws_proxy"
+          /barStatus:
+            get:
+              summary: Change the bar status. Its is a get for insesrtion in slides
+              operationId: barstatusChange
+              consumes:
+              - application/json
+              produces:
+              - application/json
+              responses:
+                '200':
+                  description: "200 response"
+              x-amazon-apigateway-integration:
+                responses:
+                  default:
+                    statusCode: "200"
+                uri:
+                  Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaGetForChangingBarStatusForServer.Arn}/invocations"
+                passthroughBehavior: "when_no_match"
+                httpMethod: "POST"
+                contentHandling: "CONVERT_TO_TEXT"
+                type: "aws_proxy"
+        definitions:
+          Bill:
+            type: object
+            properties:
+              food:
+                type: array
+                items:
+                  $ref: '#/definitions/Item'
+              beer:
+                type: array
+                items:
+                  $ref: '#/definitions/Item'
+          Command:
+            type: object
+            properties:
+              id:
+                type: string
+              beer:
+                type: array
+                items:
+                  $ref: '#/definitions/Item'
+              food:
+                type: array
+                items:
+                  $ref: '#/definitions/Item'
+          Item:
+            type: object
+            properties:
+              name:
+                type: string
+              amount:
+                type: int
+      StageName: 'test'
+  DynamoDBCommandTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${User}-Command'
+      AttributeDefinitions:
+         - AttributeName: id
+           AttributeType: S
+      KeySchema:
+         - AttributeName: id
+           KeyType: HASH
+      ProvisionedThroughput:
+         ReadCapacityUnits: 1
+         WriteCapacityUnits: 1
